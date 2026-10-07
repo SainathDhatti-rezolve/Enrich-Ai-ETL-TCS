@@ -1,0 +1,14 @@
+# PyPI packages to install into the Cloud Composer environment for the Enrich AI
+# ETL DAG. Apply with:
+#   gcloud composer environments update <ENV> --location <REGION> \
+#       --update-pypi-packages-from-file requirements-composer.txt
+#
+# NOTE: Do NOT list apache-airflow, pandas is usually preinstalled by Composer —
+# but pinning a compatible range is safe. Airflow itself is managed by Composer.
+# APScheduler is intentionally excluded (Airflow is the scheduler now).
+pandas>=2.2,<4.0
+paramiko>=3.4,<4.0
+PyYAML>=6.0,<7.0
+tenacity>=8.2,<9.0
+python-dotenv>=1.0,<2.0
+tzdata

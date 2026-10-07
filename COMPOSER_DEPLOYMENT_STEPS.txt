@@ -1,0 +1,227 @@
+===============================================================================
+ DEPLOYING AN ETL TO GCP CLOUD COMPOSER  —  STEP-BY-STEP (what we actually did)
+ Project: Enrich-Ai-ETL     Written: 2026-08-27
+===============================================================================
+
+This is a plain-language record of how we moved the Enrich AI ETL from a local
+Docker + APScheduler setup to Google Cloud Composer (managed Apache Airflow).
+Follow it as a template for future ETLs. Commands you type in the terminal are
+shown after a "$".
+
+
+-------------------------------------------------------------------------------
+ 0. THE IDEA (read this first)
+-------------------------------------------------------------------------------
+Cloud Composer = Google-managed Apache Airflow. Airflow is a scheduler. Instead
+of running our own scheduler process 24/7, we:
+
+  1. Put our ETL code into a Docker IMAGE.
+  2. Push that image to Artifact Registry (Google's private image store).
+  3. Write a small DAG (a Python file) that tells Airflow:
+       "every day at 10 AM, run this container once."
+  4. Copy the DAG file into Composer's Google Cloud Storage bucket.
+  5. Airflow sees the DAG and runs it on schedule.
+
+"Deploying a DAG" = copying one .py file into a GCS bucket. That's it.
+
+Key environment values for THIS project:
+  GCP project id ....... etl-lower-92fd
+  Region ............... us-central1
+  Composer env name .... etl-lower
+  Composer version ..... 2.5.1  (Airflow 2.6.3 / worker image 2.10.5-composer)
+  DAGs bucket .......... gs://us-central1-etl-lower-7049eee8-bucket/dags
+  Airflow UI ........... https://86358b2c3c6a4329a3098adc4b73ea2c-dot-us-central1.composer.googleusercontent.com
+  Image (Artifact Reg) . us-central1-docker.pkg.dev/etl-lower-92fd/enrich-ai-etl/enrich-ai-etl:latest
+                         (format is: HOST / PROJECT / REPOSITORY / IMAGE)
+  SFTP download dir .... /enrich/imports
+  SFTP upload dir ...... /enrichai/EnrichAi Imports   (note the lowercase first folder!)
+
+
+-------------------------------------------------------------------------------
+ 1. CODE CHANGES WE MADE (one-time, in the project)
+-------------------------------------------------------------------------------
+a) run_once.py  (NEW)
+   The old container ran scheduler.py (APScheduler) which runs FOREVER. Under
+   Airflow that's wrong — Airflow does the scheduling, so the container must run
+   the pipeline ONCE and exit. run_once.py does exactly that (exit 0 = success,
+   non-zero = failure so Airflow marks the task red).
+
+b) Dockerfile  (EDITED)
+   Added:  COPY run_once.py ./
+   (so run_once.py is inside the image; the DAG runs it instead of scheduler.py)
+
+c) dags/enrich_ai_etl_container_dag.py  (NEW — this is THE DAG)
+   Uses KubernetesPodOperator to run our image once per day at 10 AM Central.
+   Reads SFTP secrets from Airflow Variables and passes them into the container
+   as environment variables.
+   IMPORTANT import detail for Composer 2.5.1:
+       from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+       (the older "...operators.kubernetes_pod" path does NOT exist here)
+
+
+-------------------------------------------------------------------------------
+ 2. ONE-TIME LOGIN / SETUP (in your terminal)
+-------------------------------------------------------------------------------
+Log in (this opens a browser; finish the whole sign-in):
+   $ gcloud auth login sainathdhatti@rezolve.com
+
+Point gcloud at the project:
+   $ gcloud config set project etl-lower-92fd
+
+Let Docker push to Artifact Registry (say Y if prompted):
+   $ gcloud auth configure-docker us-central1-docker.pkg.dev
+
+TIP: if a gcloud auth command shows no output / exits code 120, the snap version
+of gcloud is glitching — re-run the login in a normal terminal and complete the
+browser step. Non-auth commands (config, describe) still work.
+
+
+-------------------------------------------------------------------------------
+ 3. BUILD AND PUSH THE IMAGE (each time the CODE changes)
+-------------------------------------------------------------------------------
+From the project root (folder with the Dockerfile):
+
+   $ docker build -t enrich-ai-etl .
+
+Tag it with the full registry path (HOST/PROJECT/REPO/IMAGE):
+
+   $ docker tag enrich-ai-etl us-central1-docker.pkg.dev/etl-lower-92fd/enrich-ai-etl/enrich-ai-etl:latest
+
+Push it:
+
+   $ docker push us-central1-docker.pkg.dev/etl-lower-92fd/enrich-ai-etl/enrich-ai-etl:latest
+
+Success looks like every layer saying "Pushed" and a final "digest: sha256:...".
+Because the DAG uses image_pull_policy=Always on the :latest tag, the next run
+automatically uses the new image.
+
+
+-------------------------------------------------------------------------------
+ 4. SET THE SECRETS AS AIRFLOW VARIABLES (one-time; edit when creds change)
+-------------------------------------------------------------------------------
+These replace the local .env file (Composer workers don't get .env).
+In the Airflow UI  ->  Admin  ->  Variables  ->  + , add:
+
+   ETL_SFTP_HOST        Sftp.edgecaseprod.com
+   ETL_SFTP_USERNAME    containerstore
+   ETL_SFTP_PASSWORD    (the real password — Airflow masks it because the name
+                         contains "password")
+   ETL_DOWNLOAD_DIR     /enrich/imports
+   ETL_UPLOAD_DIR       /enrichai/EnrichAi Imports     <-- lowercase first folder!
+   ETL_UPLOAD_ENABLED   true       (false = download+transform only, no upload)
+
+NOTE: set these in the UI, not the CLI — the space in the upload dir breaks the
+CLI form.
+
+
+-------------------------------------------------------------------------------
+ 5. DEPLOY THE DAG (each time the DAG file changes)
+-------------------------------------------------------------------------------
+Copy the one DAG file into the DAGs bucket:
+
+   $ gcloud storage cp dags/enrich_ai_etl_container_dag.py gs://us-central1-etl-lower-7049eee8-bucket/dags/enrich_ai_etl_container_dag.py
+
+Wait ~1-2 minutes. Refresh the Airflow UI DAGs page. If you see a red
+"Broken DAG" banner, click it, read the traceback, fix, re-copy.
+
+
+-------------------------------------------------------------------------------
+ 6. RUN IT AND VERIFY
+-------------------------------------------------------------------------------
+In the Airflow UI:
+  - Turn the DAG toggle ON (unpause).  DAG name: enrich_ai_etl_container
+  - Click the DAG -> "Trigger DAG" (the play button) to run NOW, ONCE.
+    (The daily 10 AM Central run also happens automatically.)
+  - Click the run -> task "run_etl_container" -> Logs to watch it.
+
+Check run states from the terminal (clearer than the UI):
+   $ gcloud composer environments run etl-lower --location us-central1 dags list-runs -- -d enrich_ai_etl_container
+   (states: success / running / queued / failed)
+
+A good run in the log shows:
+   Starting pipeline run ...
+   Downloaded 4 source file(s) ...
+   Wrote 14780 product row(s) ...
+   Uploading ... -> /enrichai/EnrichAi Imports/ContainerStore_Import_...csv
+   Pipeline run ... completed successfully (download -> transform -> upload -> cleanup)
+   run_once: ETL run ... completed (uploaded=True ...)
+
+Verify the file really landed on the SFTP:
+   $ sftp containerstore@Sftp.edgecaseprod.com
+   sftp> cd /enrichai/EnrichAi Imports
+   sftp> ls -l
+   sftp> exit
+
+
+-------------------------------------------------------------------------------
+ 7. SAFE TESTING (so you never spam the client's production SFTP)
+-------------------------------------------------------------------------------
+- To test WITHOUT uploading: set Variable ETL_UPLOAD_ENABLED = false, trigger,
+  check the log (it will say "Upload disabled ... skipping push"). Set back to
+  true for real runs.
+- Click Trigger only ONCE and wait. Each trigger is a real run that uploads a
+  file. The DAG runs one-at-a-time (max_active_runs=1), so extra clicks just
+  pile up in a queue and each one uploads a duplicate.
+- To cancel queued runs: Airflow UI -> Grid -> click the run's top square ->
+  Mark Failed (or Delete Run).
+
+
+-------------------------------------------------------------------------------
+ 8. PROBLEMS WE HIT AND THE FIXES (so you recognize them next time)
+-------------------------------------------------------------------------------
+PROBLEM: "Broken DAG ... No module named
+         'airflow.providers.cncf.kubernetes.operators.kubernetes_pod'"
+FIX:     Import path differs by provider version. Use:
+             from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+         (our DAG tries this first and falls back to the old path automatically.)
+
+PROBLEM: Upload failed with "OSError: No such file or directory"
+FIX:     The SFTP upload directory path was wrong (capital "/EnrichAi/..." while
+         the server actually has lowercase "/enrichai/..."). SFTP's put() does
+         not create missing folders. We listed the server, found the real path,
+         and fixed the ETL_UPLOAD_DIR Variable to /enrichai/EnrichAi Imports.
+
+PROBLEM: Changed a Variable but the run still used the old value.
+FIX:     The DAG reads Variables when Airflow re-parses the file (~every 30s).
+         After changing a Variable, wait ~60s before triggering.
+
+PROBLEM: Many runs stuck "white"/queued, task never turned green.
+FIX:     We had clicked Trigger several times. max_active_runs=1 makes them run
+         one at a time; the rest wait. We paused the DAG and Marked Failed the
+         extra queued runs. Lesson: trigger once, wait.
+
+PROBLEM: gcloud auth commands print nothing and exit 120.
+FIX:     snap gcloud quirk. Complete the login in a normal terminal; other
+         commands still work. (Consider installing gcloud from the official
+         installer instead of snap.)
+
+
+-------------------------------------------------------------------------------
+ 9. QUICK REFERENCE — the normal update cycle from now on
+-------------------------------------------------------------------------------
+Changed the ETL code (src/, transform, etc.)?
+   -> docker build ... ; docker tag ... ; docker push ...      (Section 3)
+   -> next run picks up the new image automatically.
+
+Changed the DAG (schedule, settings)?
+   -> gcloud storage cp dags/enrich_ai_etl_container_dag.py gs://.../dags/   (Section 5)
+
+Changed a credential / path?
+   -> update the Airflow Variable in the UI (Section 4); wait ~60s.
+
+Change the schedule time?
+   -> edit  schedule="0 10 * * *"  in the DAG, re-copy the DAG file (Section 5).
+   Cron format: minute hour day month day-of-week. "0 10 * * *" = 10:00 daily,
+   in the America/Chicago timezone set on start_date.
+
+
+-------------------------------------------------------------------------------
+ 10. STILL TO DO (recommended, not blocking)
+-------------------------------------------------------------------------------
+- Back up this project to a Git repo. It currently lives only on this laptop and
+  now runs a client workload — losing the machine loses the ETL.
+- Retire the old scheduler: delete scheduler.py, remove APScheduler from
+  requirements.txt, remove the schedule: block from config/config.yaml.
+- For production hardening: move the SFTP password from an Airflow Variable to
+  Google Secret Manager.
+===============================================================================

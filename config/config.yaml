@@ -1,0 +1,70 @@
+# =============================================================================
+# Enrich AI ETL - Configuration
+# -----------------------------------------------------------------------------
+# TEMPORARY migration tool: Legacy Workbench CSVs -> Enrich AI CSV.
+#
+# SECRETS: Do NOT commit real credentials. Any value below may be overridden at
+# runtime by an environment variable using the form ${ENV:VAR_NAME}. If the
+# variable is unset, the literal fallback after the ":-" is used (empty here).
+# Example:  password: "${ENV:ETL_SFTP_PASSWORD}"
+# =============================================================================
+
+# --- Production ETL SFTP server (source download + output upload) ------------
+sftp:
+  host: "${ENV:ETL_SFTP_HOST}"
+  port: 22
+  username: "${ENV:ETL_SFTP_USERNAME}"
+  password: "${ENV:ETL_SFTP_PASSWORD}"
+  # Optional private key path (used instead of password if provided).
+  private_key_path: "${ENV:ETL_SFTP_KEY_PATH}"
+
+  # Remote directory holding the four read-only source files.
+  # These files MUST NEVER be modified, renamed, moved, or deleted.
+  # Set via ETL_DOWNLOAD_DIR in .env (default shown after ":-").
+  download_dir: "${ENV:ETL_DOWNLOAD_DIR:-/enrich/imports}"
+
+  # Remote directory where the generated Enrich AI CSV is uploaded.
+  # Set via ETL_UPLOAD_DIR in .env.
+  upload_dir: "${ENV:ETL_UPLOAD_DIR:-/enrichai/EnrichAi Imports}"
+
+# --- Source file names on the remote download_dir ----------------------------
+source_files:
+  product_output: "product_output.csv"
+  product_groups: "product_groups.csv"
+  product_category: "product_category.csv"
+  category_output: "category_output.csv"
+
+# --- Generated output --------------------------------------------------------
+output:
+  # Fixed filename (NO date/time): every run uploads the SAME name, so the new
+  # file REPLACES the previous one on the SFTP server instead of accumulating a
+  # new timestamped copy each run.
+  # Placeholders are still supported if ever needed: {date}=YYYYMMDD,
+  # {time}=HHMMSS, {timestamp}=run id (avoid ':' — it breaks Windows SFTP names).
+  filename: "ContainerStore_Import.csv"
+
+# --- Push / upload behavior --------------------------------------------------
+upload:
+  # Set ETL_UPLOAD_ENABLED=false to run download + transform WITHOUT pushing the
+  # output back to SFTP (working files are then kept for inspection). Set to
+  # true (default) for normal production runs.
+  enabled: "${ENV:ETL_UPLOAD_ENABLED:-true}"
+
+# --- Local working area (per-run subdirectories are created here) ------------
+paths:
+  data_dir: "data"        # data/incoming/<run_id>/ and data/outgoing/<run_id>/
+  # Logs go to stdout by default (captured by Docker/Azure). Leave ETL_LOGS_DIR
+  # empty for stdout-only; set a path (e.g. /home/LogFiles/etl) to also write a
+  # log file there.
+  logs_dir: "${ENV:ETL_LOGS_DIR:-}"
+
+# --- Timezone for output-file timestamps -------------------------------------
+# Scheduling is handled by Airflow / Cloud Composer (see the DAG), NOT by this
+# config. Only `timezone` is still used at runtime: the pipeline stamps the
+# uploaded filename in this local timezone.
+schedule:
+  timezone: "${ENV:ETL_SCHEDULE_TIMEZONE:-America/Chicago}"
+
+# --- Logging -----------------------------------------------------------------
+logging:
+  level: INFO

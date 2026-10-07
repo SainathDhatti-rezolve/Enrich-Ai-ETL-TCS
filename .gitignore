@@ -1,0 +1,19 @@
+# Byte-compiled / caches
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Editor / IDE
+.idea/
+.vscode/
+
+# Runtime artifacts (never committed, never uploaded to dev workspace)
+data/
+logs/
+
+# Local secrets
+.env

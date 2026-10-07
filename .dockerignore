@@ -1,0 +1,17 @@
+# Keep the image small and free of local artifacts / secrets.
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.git/
+.gitignore
+.idea/
+.vscode/
+data/
+logs/
+.env
+tests/
+*.md
+Dockerfile
+.dockerignore

@@ -1,0 +1,19 @@
+# Enrich AI ETL — Docker Compose (local one-off runs).
+# Production scheduling is handled by Cloud Composer, not this file.
+#
+# Run once:              docker compose up --build
+# View logs:             docker compose logs -f
+# Stop / remove:         docker compose down
+
+services:
+  etl:
+    build: .
+    image: enrich-ai-etl
+    container_name: enrich-ai-etl
+    # Loads all ETL_* variables (SFTP creds, toggles) into the container.
+    env_file: .env
+    # Output/working files appear on the host under ./data
+    volumes:
+      - ./data:/app/data
+    # No `command:` here => uses the Dockerfile CMD (python run_once.py): runs
+    # the ETL once and exits. (No restart policy — this is a one-off run.)

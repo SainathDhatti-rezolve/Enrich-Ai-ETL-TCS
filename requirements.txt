@@ -1,0 +1,14 @@
+# Enrich AI ETL - runtime and test dependencies
+# Pinned to compatible ranges for Python 3.12.
+
+pandas>=2.2,<4.0
+paramiko>=3.4,<4.0
+PyYAML>=6.0,<7.0
+tenacity>=8.2,<9.0
+python-dotenv>=1.0,<2.0
+# Provides the IANA tz database for zoneinfo (python:3.12-slim ships no system
+# tzdata); used to stamp the output filename in the configured local timezone.
+tzdata
+
+# Testing
+pytest>=8.0,<9.0
