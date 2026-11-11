@@ -71,8 +71,10 @@ def _etl_env() -> dict:
     return env
 
 
-# Original schedule: 10:00 America/Chicago daily. A pendulum-tz start_date makes
-# Airflow interpret the cron in that timezone and handle DST automatically.
+# Schedule: 09:00 America/Chicago daily — 15 min after the ~8:45am Central
+# file drop from Container Store (previously 10:00, which ran too late).
+# A pendulum-tz start_date makes Airflow interpret the cron in that timezone
+# and handle DST automatically.
 LOCAL_TZ = pendulum.timezone("America/Chicago")
 
 default_args = {
@@ -84,7 +86,7 @@ default_args = {
 with DAG(
     dag_id="enrich_ai_etl_container",
     description="Enrich AI ETL run as a container via KubernetesPodOperator (Composer 2).",
-    schedule="0 10 * * *",
+    schedule="0 9 * * *",
     start_date=pendulum.datetime(2026, 8, 1, tz=LOCAL_TZ),
     catchup=False,
     max_active_runs=1,

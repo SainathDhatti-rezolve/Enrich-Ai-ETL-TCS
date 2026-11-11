@@ -43,7 +43,7 @@ dags/..._container_dag.py ── upload ──▶  Composer GCS bucket /dags
 | Composer version | 2 (Airflow 2.x, GKE-based) |
 | Artifact Registry image | `us-central1-docker.pkg.dev/etl-lower-92fd/enrich-ai-etl/enrich-ai-etl:latest` (repo `enrich-ai-etl` + image `enrich-ai-etl`) |
 | Docker auth host | `us-central1-docker.pkg.dev` |
-| Schedule | Daily 10:00 America/Chicago |
+| Schedule | Daily 09:00 America/Chicago |
 | Environment name | **`etl-lower`** (use in place of `ENV_NAME` below) |
 | DAGs bucket | `gs://us-central1-etl-lower-7049eee8-bucket/dags` |
 | Airflow UI | https://86358b2c3c6a4329a3098adc4b73ea2c-dot-us-central1.composer.googleusercontent.com |

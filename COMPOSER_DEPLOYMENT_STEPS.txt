@@ -210,8 +210,8 @@ Changed a credential / path?
    -> update the Airflow Variable in the UI (Section 4); wait ~60s.
 
 Change the schedule time?
-   -> edit  schedule="0 10 * * *"  in the DAG, re-copy the DAG file (Section 5).
-   Cron format: minute hour day month day-of-week. "0 10 * * *" = 10:00 daily,
+   -> edit  schedule="0 9 * * *"  in the DAG, re-copy the DAG file (Section 5).
+   Cron format: minute hour day month day-of-week. "0 9 * * *" = 09:00 daily,
    in the America/Chicago timezone set on start_date.
 
 
